@@ -17,4 +17,6 @@ jobs:
       - name: Timeline renders from the committed database
         run: python -m listingwatch --db data/listings.sqlite timeline --out /tmp/timeline && test -f /tmp/timeline/index.html
       - name: Demo runs with no key (replay of the recorded notes)
-        run: python -m listingwatch demo --out /tmp/demo | tee /tmp/demo.log && grep -q "mode: replay" /tmp/demo.log
+        run: |
+          python -m listingwatch demo --out /tmp/demo | tee /tmp/demo.log
+          grep -q "mode: replay" /tmp/demo.log

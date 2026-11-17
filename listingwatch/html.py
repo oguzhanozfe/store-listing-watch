@@ -86,7 +86,7 @@ def render_listing(con, store: str, app_id: str, country: str, banner: str = "")
     cards.reverse()
     shots = "".join(f'<img loading="lazy" src="{_e(s["url"])}" alt="screenshot">' for s in last["screenshots"])
     head = (f'<p><a href="index.html">← all listings</a></p><h1>{_e(last["title"])}</h1>'
-            f'<p class="muted">{_e(last["developer"])} · {_e(store)} · {_e(country.upper())} · version {_e(last["version"])}'
+            f'<p class="muted">{_e(last["developer"])} · {_e(STORE_LABEL.get(store, store))} · {_e(country.upper())} · version {_e(last["version"])}'
             f' · rating {_e(last["rating"] and round(last["rating"], 2))} ({_e(last["rating_count"])})'
             f' · {len(snaps)} snapshots, {_e(snaps[0]["taken_at"])} to {_e(last["taken_at"])}'
             + (f' · <a href="{_e(last["url"])}">store page</a>' if last.get("url") else "") + "</p>"
@@ -117,7 +117,7 @@ def render_all(con, out_dir: str, banner: str = "") -> list[str]:
         with open(os.path.join(out_dir, name), "w", encoding="utf-8") as fh:
             fh.write(doc)
         written.append(name)
-        rows.append(f'<tr><td><a href="{name}">{_e(info["title"])}</a></td><td>{_e(store)}</td>'
+        rows.append(f'<tr><td><a href="{name}">{_e(info["title"])}</a></td><td>{_e(STORE_LABEL.get(store, store))}</td>'
                     f'<td>{_e(country.upper())}</td><td>{info["snapshots"]}</td><td>{info["changed"]}</td>'
                     f'<td>{_e(info["last"])}</td></tr>')
     body = (_banner(banner) + '<h1>Store listing watch</h1><p class="muted">Listing snapshots over time. Diffs are computed; '
