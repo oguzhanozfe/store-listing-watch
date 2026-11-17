@@ -26,6 +26,12 @@ def _e(value) -> str:
     return html.escape("" if value is None else str(value))
 
 
+STORE_LABEL = {"appstore": "App Store", "googleplay": "Google Play",
+               "appstore-archive": "App Store · archived snapshot vs live"}
+ARCHIVE_NOTE = ("The first snapshot is an Internet Archive copy of the App Store page; the second is the live page. "
+                "Months of changes collapse into one diff.")
+
+
 def page_name(store: str, app_id: str, country: str) -> str:
     return f"{store}-{app_id}-{country}.html"
 
@@ -74,7 +80,8 @@ def render_listing(con, store: str, app_id: str, country: str, banner: str = "")
         if note:
             body += (f'<div class="note"><b>Interpretation · {_e(note["model"])} · not verified</b>'
                      f'<div>{_e(note["note"])}</div></div>')
-        cards.append(f'<section class="card"><div class="muted">{_e(prev["taken_at"])} → {_e(cur["taken_at"])}'
+        tag = "Archived snapshot vs live · " if store == "appstore-archive" else ""
+        cards.append(f'<section class="card"><div class="muted">{tag}{_e(prev["taken_at"])} → {_e(cur["taken_at"])}'
                      f'</div>{body}</section>')
     cards.reverse()
     shots = "".join(f'<img loading="lazy" src="{_e(s["url"])}" alt="screenshot">' for s in last["screenshots"])
@@ -83,7 +90,8 @@ def render_listing(con, store: str, app_id: str, country: str, banner: str = "")
             f' · rating {_e(last["rating"] and round(last["rating"], 2))} ({_e(last["rating_count"])})'
             f' · {len(snaps)} snapshots, {_e(snaps[0]["taken_at"])} to {_e(last["taken_at"])}'
             + (f' · <a href="{_e(last["url"])}">store page</a>' if last.get("url") else "") + "</p>"
-            f'<div class="shots">{shots}</div>')
+            f'<div class="shots">{shots}</div>'
+            + (f'<p class="muted">{ARCHIVE_NOTE}</p>' if store == "appstore-archive" else ""))
     quiet_line = f'<p class="quiet muted">{quiet} snapshot pair(s) with no change are not shown.</p>' if quiet else ""
     empty = "" if cards else '<p class="muted">No changes between snapshots yet.</p>'
     doc = _doc(last["title"], _banner(banner) + head + "<h2>Changes</h2>" + empty + "".join(cards) + quiet_line)

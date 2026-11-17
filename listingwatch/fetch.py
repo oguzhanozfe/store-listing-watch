@@ -231,3 +231,78 @@ def hamming(a: str, b: str) -> int:
 def screenshot_hash(url: str, limiter: RateLimiter) -> str:
     width, height, rows = decode_png_gray(http_get(thumb_url(url), limiter))
     return dhash(rows, width, height)
+
+
+# --- App Store web page and Internet Archive copies ------------------------
+
+WAYBACK_CDX = "https://web.archive.org/cdx/search/cdx"
+
+
+def _maybe_gunzip(data: bytes) -> bytes:
+    return zlib.decompress(data, 16 + zlib.MAX_WBITS) if data[:2] == b"\x1f\x8b" else data
+
+
+def fetch_appstore_page(url: str, limiter: RateLimiter) -> str:
+    """The live apps.apple.com product page, only where its robots.txt allows the URL."""
+    if not robots_allows(url, limiter):
+        raise PermissionError(f"robots.txt disallows {url}")
+    return _maybe_gunzip(http_get(url, limiter)).decode("utf-8", "replace")
+
+
+def wayback_captures(page_url: str, limiter: RateLimiter, since: str = "", until: str = "") -> list[tuple[str, str]]:
+    """(timestamp, original URL) of archived HTML captures of one product page, oldest first."""
+    url = page_url.split("://", 1)[-1].split("?", 1)[0]
+    query = {"url": url, "matchType": "prefix", "filter": ["statuscode:200", "mimetype:text/html"],
+             "fl": "timestamp,original", "output": "json", "from": since, "to": until}
+    rows = json.loads(http_get(f"{WAYBACK_CDX}?{urllib.parse.urlencode(query, doseq=True)}", limiter, timeout=120) or b"[]")
+    return sorted((t, o) for t, o in rows[1:] if "see-all" not in o)
+
+
+def fetch_wayback(timestamp: str, original: str, limiter: RateLimiter) -> str:
+    """The archived page as originally served (the `id_` form, without the archive's toolbar)."""
+    data = http_get(f"https://web.archive.org/web/{timestamp}id_/{original}", limiter, timeout=60)
+    return _maybe_gunzip(data).decode("utf-8", "replace")
+
+
+def parse_appstore_page(page: str, app_id: str, country: str) -> dict:
+    """Map an apps.apple.com product page (the layout in use since 2025) to snapshot fields.
+
+    Unlike the Lookup API, the page shows the subtitle and the in-app-purchase flag. Fields come from the
+    schema.org JSON-LD block and the page's embedded `serialized-server-data` JSON.
+    """
+    ld = re.search(r'<script id=["]?software-application["]? type="application/ld\+json">(.*?)</script>', page, re.S)
+    server = re.search(r'<script type="application/json" id="serialized-server-data">(.*?)</script>', page, re.S)
+    if not (ld and server):
+        raise ValueError("no JSON-LD or serialized-server-data block; older or changed page layout")
+    ld = json.loads(ld.group(1))
+    data = json.loads(server.group(1))
+    data = data["data"] if isinstance(data, dict) else data  # 2025 pages: a list; 2026 pages: {"data": [...]}
+    shelves = data[0]["data"]["shelfMapping"]
+    language = (data[0].get("intent") or {}).get("language")
+    recent = ((shelves.get("mostRecentVersion") or {}).get("items") or [{}])[0]
+    desc = ((shelves.get("description") or {}).get("items") or [{}])[0].get("paragraph", {}).get("text")
+    shots = [i["screenshot"]["template"].replace("{w}x{h}{c}.{f}", "392x696bb.jpg")
+             for i in (shelves.get("product_media_phone_") or {}).get("items", []) if "screenshot" in i]
+    subtitle = re.search(r'<(h2|p) class="subtitle[^"]*">(.*?)</\1>', page, re.S)
+    attributes = re.search(r'<p class="attributes[^"]*">(.*?)</p>', page, re.S)
+    rating, offer = ld.get("aggregateRating") or {}, ld.get("offers") or {}
+    return {
+        "store": "appstore",
+        "app_id": str(app_id),
+        "country": country.lower(),
+        "title": ld.get("name"),
+        "subtitle": _text(subtitle.group(2)) if subtitle else None,
+        "developer": (ld.get("author") or {}).get("name"),
+        "description": desc or ld.get("description") or "",
+        "version": (recent.get("primarySubtitle") or "").replace("Version ", "") or None,
+        "version_date": recent.get("secondarySubtitle"),
+        "release_notes": recent.get("text") or "",
+        "price": offer.get("price"),
+        "currency": offer.get("priceCurrency"),
+        "has_iap": bool(re.search(r"In.App Purchases", _text(attributes.group(1)))) if attributes else None,
+        "rating": rating.get("ratingValue"),
+        "rating_count": rating.get("reviewCount"),
+        "screenshots": [{"url": u, "hash": None} for u in dict.fromkeys(shots)],
+        "url": None,
+        "language": language,  # not stored; archive captures are sometimes another locale of the same URL
+    }

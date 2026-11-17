@@ -93,6 +93,38 @@ def base_snap() -> dict:
     return snap
 
 
+class AppStorePageTests(unittest.TestCase):
+    PAGE = (FIX / "appstore_page_royalmatch_20251126.html").read_text(encoding="utf-8")
+
+    def test_parse_archived_page(self):
+        snap = fetch.parse_appstore_page(self.PAGE, "1482155847", "US")
+        self.assertEqual((snap["title"], snap["subtitle"], snap["developer"]),
+                         ("Royal Match", "King Robert’s Match 3 Puzzles", "Dream Games"))
+        self.assertEqual((snap["version"], snap["has_iap"], snap["rating"], snap["rating_count"]),
+                         ("32473", True, 4.7, 3396270))
+        self.assertEqual(snap["language"], "en-US")
+        self.assertIn("100 NEW LEVELS", snap["release_notes"])
+        self.assertTrue(snap["description"].startswith("King Robert needs your help"))
+        self.assertEqual(len(snap["screenshots"]), 2)  # the preview video is not a screenshot
+        self.assertTrue(snap["screenshots"][0]["url"].endswith("/392x696bb.jpg"))
+
+    def test_newer_server_data_shape_and_subtitle_tag(self):
+        page = self.PAGE.replace('id="serialized-server-data">[', 'id="serialized-server-data">{"data": [', 1)
+        page = page.replace("}]</script>", "}]}</script>", 1).replace('<h2 class="subtitle', '<p class="subtitle')
+        page = page.replace("</h2>", "</p>", 1)
+        snap = fetch.parse_appstore_page(page, "1482155847", "us")
+        self.assertEqual((snap["subtitle"], snap["version"]), ("King Robert’s Match 3 Puzzles", "32473"))
+
+    def test_old_layout_fails_loudly(self):
+        with self.assertRaises(ValueError):
+            fetch.parse_appstore_page("<html><body>Royal Match</body></html>", "1482155847", "us")
+
+    def test_gzipped_archive_body_is_decoded(self):
+        import gzip
+        self.assertEqual(fetch._maybe_gunzip(gzip.compress(b"<html>")), b"<html>")
+        self.assertEqual(fetch._maybe_gunzip(b"<html>"), b"<html>")
+
+
 class PlayTests(unittest.TestCase):
     PAGE = (FIX / "play_royalmatch_trimmed.html").read_text(encoding="utf-8")
 

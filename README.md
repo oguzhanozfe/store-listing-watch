@@ -79,6 +79,30 @@ Cron, once a day (Apple's Lookup responses are served with a CDN `max-age` of ab
 17 6 * * * cd /path/to/store-listing-watch && python3 -m listingwatch run --html timeline >> run.log 2>&1
 ```
 
+### Daily snapshots on GitHub Actions
+
+[`.github/workflows/snapshot.yml`](.github/workflows/snapshot.yml) runs `run --no-notes` every day at 06:17 UTC
+(and on demand from the Actions tab). It uses no model and no secrets. It continues from the database on the
+[`data`](../../tree/data) branch and commits the new `data/` and rendered `timeline/` back to that branch, so
+`main` stays code-only. To add notes to that history locally:
+
+```bash
+git fetch origin data && git checkout origin/data -- data/listings.sqlite
+python -m listingwatch notes && python -m listingwatch timeline --out timeline
+```
+
+A listing that fails to fetch (for example a Play page that answers the runner differently) is logged in
+`data/runs.jsonl`, and the other snapshots are still committed.
+
+### Archived snapshot vs live
+
+`python -m listingwatch archive <App Store id> ...` looks up captures of each product page in the
+[Internet Archive](https://web.archive.org) (CDX API, 5 s between requests), takes the oldest capture since
+`--since` (default 2025-10-01; earlier captures use an older page layout the parser does not read) that the parser can read, fetches the live page from apps.apple.com (its
+`robots.txt` allows product pages), and stores both as a pair under the store name `appstore-archive`. The
+timeline labels these cards "Archived snapshot vs live". Months of changes collapse into one diff, and the page
+parser reads the subtitle and in-app-purchase flag, which the Lookup API does not return.
+
 ### Watchlist
 
 `watchlist.json` lists App Store ids, Play packages and optional per-app storefronts:
@@ -138,8 +162,22 @@ What changed:
 - **Google Play: rating count moved on all 12 listings in 62 min** (for example Clash of Clans +88, Clash Royale
   +78, Pokémon GO +5); no text, version date or screenshot changed. The US and GB pages of Royal Match and
   MONOPOLY GO! show near-identical counts, so Play's count appears to be global, not per storefront.
-- Rating-only moves do not trigger a note, so **no real note has been written yet**. The real timeline in
-  [`examples/timeline/`](examples/timeline/index.html) shows the Play rating-count cards and no interpretation.
+- Rating-only moves do not trigger a note, so the day-to-day timeline has no notes yet.
+
+**Archived snapshot vs live** (`archive` command, 2026-11-17): for 4 games the oldest readable English capture
+of the App Store page from early November 2025 was diffed against the live page, about 12 months apart. Every
+pair changed: version, release notes or description in all 4, the subtitle in 2 (Candy Crush Saga: "Puzzle Your
+Way Through Candy!" → "Your Relaxing Puzzle Escape!"; Clash of Clans: "Build, Battle, Defend & Rise!" → "Base
+Building Battle Strategy"), and the screenshot set in 2. These are the first notes on real data: 3 by
+`gemma-4-31b-it` and 1 by `gemini-3.5-flash-lite`, all via the Gemini API. Capture links, changed fields and note models are in [`data/archive_pairs.md`](data/archive_pairs.md);
+the pages are under `appstore-archive-*` in [`examples/timeline/`](examples/timeline/index.html). Each note's named
+events and features were checked by hand against the diff text (for example "Town Hall 19" is in the live Clash of
+Clans release notes); the intent part of each note is still a guess.
+
+Finding a usable capture took work: of 36 captures tried over three attempts, 30 used an older page layout
+the parser does not read (every capture before November 2025 for these pages), and 2 were Spanish (es-MX) pages
+served at the US URL; one of those was stored and then deleted before the `--language` check was added. One
+Internet Archive index request returned HTTP 503 and was retried.
 
 To show what a change looks like, [`examples/demo-timeline/`](examples/demo-timeline/index.html) is a
 **simulated** example, labelled as such on every page: the first snapshot is the real Royal Match US snapshot
@@ -152,7 +190,7 @@ edit as a seasonal event; that is one example, not an evaluation.
 ## Known limits
 
 - **No subtitle or in-app-purchase flag for the App Store.** The Lookup API does not return them; those columns
-  stay empty for App Store snapshots. Promotional text is not returned either.
+  stay empty for App Store snapshots. The `archive` command's page parser does read them. Promotional text is not returned either.
 - **Only iPhone screenshots** are tracked (`screenshotUrls`), not iPad or Apple TV sets, and not preview videos.
 - **dHash on a 32 px rendition** catches swapped or redesigned images, not small text edits inside a screenshot.
   The 6-bit threshold is a judgement call, not tuned on labelled data.
@@ -169,6 +207,8 @@ edit as a seasonal event; that is one example, not an evaluation.
   more often than daily adds snapshots, not information.
 - **Google Play version is not captured.** The version string is not in the page's static HTML; the "Updated on"
   date is stored in `version_date` instead. Play rating counts are Google's rounded public figures.
+- **The App Store page parser reads only the layout in use since about November 2025** and fails loudly on
+  older captures. Archive coverage is uneven: some captures are other locales of the same URL.
 - **The Play parser depends on an undocumented page layout** (JSON-LD block, `data-g-id="description"`, the
   "What's new" section). It is tested against a trimmed copy of a real page and fails loudly when those are
   missing; it will need updating when Google changes the page.
@@ -176,13 +216,13 @@ edit as a seasonal event; that is one example, not an evaluation.
 ## Layout
 
 ```
-listingwatch/fetch.py   Lookup API, Play page fetch (robots.txt checked) and parse, rate limiter, PNG decode, dHash
+listingwatch/fetch.py   Lookup API, Play and App Store page fetch (robots.txt checked) and parse, Internet Archive CDX, rate limiter, PNG decode, dHash
 listingwatch/db.py      SQLite schema and queries
 listingwatch/diff.py    snapshot diff
 listingwatch/llm.py     note prompt; Gemini / DeepSeek / OpenAI-compatible / Ollama client with retries
 listingwatch/html.py    static timeline
-listingwatch/cli.py     run, import-play, notes, timeline, diff
-tests/                  unittest suite and recorded fixtures (a real Lookup response, a trimmed real Play page,
+listingwatch/cli.py     run, import-play, archive, notes, timeline, diff
+tests/                  unittest suite and recorded fixtures (a real Lookup response, a trimmed real Play page, a trimmed archived App Store page,
                         a real 32 px screenshot)
 data/                   committed SQLite database and run log from real runs
 examples/timeline/      the timeline rendered from data/ (real)

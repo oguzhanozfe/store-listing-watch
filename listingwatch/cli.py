@@ -1,4 +1,4 @@
-"""Command line: run (cron), import-play, notes, timeline, diff."""
+"""Command line: run (cron), import-play, archive, notes, timeline, diff."""
 from __future__ import annotations
 
 import argparse
@@ -172,6 +172,56 @@ def cmd_import_play(args) -> int:
     return 0
 
 
+ARCHIVE_STORE = "appstore-archive"
+
+
+def cmd_archive(args) -> int:
+    """Pair the oldest usable Internet Archive copy of each App Store page with the live page."""
+    con = db.connect(args.db)
+    archive, apple, images = (fetch.RateLimiter(args.archive_interval), fetch.RateLimiter(args.lookup_interval),
+                              fetch.RateLimiter(args.image_interval))
+    failures = 0
+    for app_id in args.app_ids:
+        latest = db.history(con, "appstore", app_id, args.country)
+        if not latest:
+            print(f"no Lookup snapshot for {app_id} {args.country}; run `run` first", file=sys.stderr)
+            failures += 1
+            continue
+        page_url = latest[-1]["url"].split("?")[0]
+        archived = None
+        try:
+            captures = fetch.wayback_captures(page_url, archive, since=args.since)
+        except Exception as exc:
+            print(f"capture index failed for {app_id}: {exc}", file=sys.stderr)
+            failures += 1
+            continue
+        for stamp, original in captures[:args.tries]:
+            try:
+                archived = fetch.parse_appstore_page(fetch.fetch_wayback(stamp, original, archive), app_id, args.country)
+            except Exception as exc:
+                print(f"  capture {stamp} unusable: {exc}", file=sys.stderr)
+                continue
+            if not (archived.get("language") or "").lower().startswith(args.language):
+                print(f"  capture {stamp} is in {archived.get('language')}, not {args.language}", file=sys.stderr)
+                archived = None
+                continue
+            archived["taken_at"] = dt.datetime.strptime(stamp, "%Y%m%d%H%M%S").strftime("%Y-%m-%dT%H:%M:%SZ")
+            archived["url"] = f"https://web.archive.org/web/{stamp}/{original}"
+            break
+        if archived is None:
+            print(f"no usable archived capture for {app_id}", file=sys.stderr)
+            failures += 1
+            continue
+        live = fetch.parse_appstore_page(fetch.fetch_appstore_page(page_url, apple), app_id, args.country)
+        live.update(taken_at=now_utc(), url=page_url)
+        for snap in (archived, live):
+            snap["store"] = ARCHIVE_STORE
+            hash_screenshots(con, snap, images)
+            db.save_snapshot(con, snap)
+        print(f"archive pair {app_id} {live['title']}: {archived['taken_at']} -> {live['taken_at']}")
+    return 1 if failures else 0
+
+
 def cmd_notes(args) -> int:
     print(f"{write_notes(db.connect(args.db), redo=args.redo)} note(s) written")
     return 0
@@ -213,6 +263,17 @@ def main(argv: list[str] | None = None) -> int:
     i.add_argument("file")
     i.set_defaults(func=cmd_import_play)
 
+    a = sub.add_parser("archive", help="diff an Internet Archive copy of App Store pages against the live page")
+    a.add_argument("app_ids", nargs="+")
+    a.add_argument("--country", default="us")
+    a.add_argument("--language", default="en", help="page language a capture must have (captures vary by locale)")
+    a.add_argument("--since", default="20251001", help="oldest capture date to consider (YYYYMMDD)")
+    a.add_argument("--tries", type=int, default=6, help="captures to try per app before giving up")
+    a.add_argument("--archive-interval", type=float, default=5.0, help="seconds between Internet Archive requests")
+    a.add_argument("--lookup-interval", type=float, default=3.0, help="seconds between apps.apple.com requests")
+    a.add_argument("--image-interval", type=float, default=0.5)
+    a.set_defaults(func=cmd_archive)
+
     n = sub.add_parser("notes", help="write missing LLM notes")
     n.add_argument("--redo", action="store_true")
     n.set_defaults(func=cmd_notes)
@@ -222,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
     t.set_defaults(func=cmd_timeline)
 
     d = sub.add_parser("diff", help="print the latest diff for one listing as JSON")
-    d.add_argument("store", choices=["appstore", "googleplay"])
+    d.add_argument("store", choices=["appstore", "googleplay", ARCHIVE_STORE])
     d.add_argument("app_id")
     d.add_argument("country")
     d.set_defaults(func=cmd_diff)

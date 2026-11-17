@@ -1,0 +1,43 @@
+# Daily snapshot of the watchlist, committed to the `data` branch.
+# No model calls and no secrets: notes are written later, locally, from this history (see README).
+name: Daily snapshot
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: snapshot
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Continue from the data branch history, if there is one
+        run: |
+          if git rev-parse --verify -q origin/data >/dev/null; then
+            git checkout origin/data -- data/listings.sqlite data/runs.jsonl
+          fi
+      - name: Snapshot (a failed listing is logged, the rest are kept)
+        env:
+          LISTINGWATCH_LLM: none
+        run: python -m listingwatch run --no-notes --html timeline || echo "some fetches failed; see the log line"
+      - name: Commit to the data branch
+        run: |
+          mkdir -p /tmp/out && cp -r data timeline /tmp/out/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse --verify -q origin/data >/dev/null; then
+            git checkout -B data origin/data
+          else
+            git checkout --orphan data && git rm -rq --cached . && git clean -fdq
+          fi
+          rm -rf data timeline && cp -r /tmp/out/data /tmp/out/timeline .
+          git add data timeline
+          git commit -qm "Daily snapshot $(date -u +%Y-%m-%d)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+          git push origin data
