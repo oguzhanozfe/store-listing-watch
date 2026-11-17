@@ -1,0 +1,13 @@
+[project]
+name = "store-listing-watch"
+version = "0.1.0"
+description = "Track mobile game store listings over time and explain what competitors changed."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = []
+
+[project.scripts]
+listingwatch = "listingwatch.cli:main"
+
+[tool.setuptools]
+packages = ["listingwatch"]

@@ -1,0 +1,15 @@
+{
+  "countries": ["us"],
+  "apps": [
+    {"name": "Royal Match", "appstore": "1482155847", "play": "com.dreamgames.royalmatch", "countries": ["us", "gb"]},
+    {"name": "MONOPOLY GO!", "appstore": "1621328561", "play": "com.scopely.monopolygo", "countries": ["us", "gb"]},
+    {"name": "Candy Crush Saga", "appstore": "553834731", "play": "com.king.candycrushsaga"},
+    {"name": "Clash of Clans", "appstore": "529479190", "play": "com.supercell.clashofclans"},
+    {"name": "Clash Royale", "appstore": "1053012308", "play": "com.supercell.clashroyale"},
+    {"name": "Brawl Stars", "appstore": "1229016807", "play": "com.supercell.brawlstars"},
+    {"name": "Subway Surfers", "appstore": "512939461", "play": "com.kiloo.subwaysurf"},
+    {"name": "Pokémon GO", "appstore": "1094591345", "play": "com.nianticlabs.pokemongo"},
+    {"name": "Genshin Impact", "appstore": "1517783697", "play": "com.miHoYo.GenshinImpact"},
+    {"name": "Homescapes", "appstore": "1195621598", "play": "com.playrix.homescapes"}
+  ]
+}
