@@ -144,7 +144,7 @@ screenshot changes are matched by URL unless you supply `{"url", "hash"}` object
 
 ## Results
 
-Four real runs on 2026-11-17, logged in [`data/runs.jsonl`](data/runs.jsonl) and stored in
+Four real local runs on 2026-11-17, logged in [`data/runs.jsonl`](data/runs.jsonl), plus the first scheduled-workflow run and stored in
 [`data/listings.sqlite`](data/listings.sqlite). Google Play fetching was added before run 3.
 
 | Run (UTC) | Snapshots | Screenshots downloaded | Fetch failures | Notes | Wall time |
@@ -153,6 +153,7 @@ Four real runs on 2026-11-17, logged in [`data/runs.jsonl`](data/runs.jsonl) and
 | 09:39:43 | 12 App Store | 0 (all cached) | 0 | 0 | 3.1 s |
 | 09:47:01 | 12 App Store + 12 Play | 107 (Play, all new) | 0 | 0 | 89.2 s |
 | 10:48:36 | 12 App Store + 12 Play | 0 (all cached) | 0 | 0 | 63.5 s |
+| 11:10:34 | 12 App Store + 12 Play, on GitHub Actions ([`data` branch](../../tree/data)) | 0 (all cached) | 0 | – (no model in CI) | 63.4 s |
 
 What changed:
 
