@@ -93,6 +93,36 @@ def base_snap() -> dict:
     return snap
 
 
+class PlayTests(unittest.TestCase):
+    PAGE = (FIX / "play_royalmatch_trimmed.html").read_text(encoding="utf-8")
+
+    def test_parse_recorded_play_page(self):
+        snap = fetch.parse_play(self.PAGE, "com.dreamgames.royalmatch", "US")
+        self.assertEqual((snap["store"], snap["country"], snap["title"]), ("googleplay", "us", "Royal Match"))
+        self.assertEqual(snap["subtitle"], "Decorate King Robert's Castle by solving puzzles along the way!")
+        self.assertTrue(snap["description"].startswith("Welcome to Royal Match"))
+        self.assertIn("100 NEW LEVELS", snap["release_notes"])
+        self.assertTrue(snap["has_iap"])
+        self.assertEqual((snap["price"], snap["currency"]), (0.0, "USD"))
+        self.assertIsInstance(snap["rating_count"], int)
+        self.assertEqual(len(snap["screenshots"]), 3)
+        self.assertIsNone(snap["version"])
+        self.assertTrue(fetch.thumb_url(snap["screenshots"][0]["url"]).endswith("=w32-h32-rp"))
+
+    def test_layout_change_fails_loudly(self):
+        with self.assertRaises(ValueError):
+            fetch.parse_play("<html></html>", "x", "us")
+
+    def test_robots_disallow_blocks_fetch(self):
+        fetch._robots.clear()
+        robots = b"User-agent: *\nDisallow: /store/apps/details\n"
+        with mock.patch.object(fetch, "http_get", return_value=robots) as get:
+            with self.assertRaises(PermissionError):
+                fetch.fetch_play("com.example", "us", fetch.RateLimiter(0))
+            self.assertEqual(get.call_count, 1)  # only robots.txt was requested
+        fetch._robots.clear()
+
+
 class DiffTests(unittest.TestCase):
     def test_identical_snapshots_have_no_changes(self):
         self.assertEqual(diff_snapshots(base_snap(), base_snap()), [])
@@ -231,9 +261,10 @@ class StorageAndNotesTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def test_watchlist_file_is_valid(self):
-        by_country = cli.load_watchlist(str(ROOT / "watchlist.json"))
+        by_country, play = cli.load_watchlist(str(ROOT / "watchlist.json"))
         self.assertEqual(len(by_country["us"]), 10)
         self.assertEqual(len(by_country["gb"]), 2)
+        self.assertEqual(len(play), 12)
 
     def test_run_offline_with_recorded_lookup(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -243,7 +274,7 @@ class CliTests(unittest.TestCase):
             with mock.patch.object(fetch, "lookup", return_value=lookup_fixture()):
                 for _ in range(2):
                     rc = cli.main(["--db", dbp, "run", "--watchlist", str(wl), "--no-hash", "--no-notes",
-                                   "--html", site, "--lookup-interval", "0", "--log", ""])
+                                   "--html", site, "--lookup-interval", "0", "--log", "", "--no-play"])
                     self.assertEqual(rc, 0)
             con = db.connect(dbp)
             self.assertEqual(len(db.tracked(con)), 2)

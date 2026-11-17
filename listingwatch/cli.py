@@ -17,19 +17,21 @@ def now_utc() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def load_watchlist(path: str) -> dict[str, list[str]]:
-    """Return {country: [app_store_ids]} from the watchlist file."""
+def load_watchlist(path: str) -> tuple[dict[str, list[str]], list[tuple[str, str]]]:
+    """Return ({country: [app_store_ids]}, [(play_package, country)]) from the watchlist file."""
     with open(path, encoding="utf-8") as fh:
         cfg = json.load(fh)
     by_country: dict[str, list[str]] = {}
+    play: list[tuple[str, str]] = []
     for app in cfg["apps"]:
-        if not app.get("appstore"):
-            continue
         for country in app.get("countries") or cfg.get("countries") or ["us"]:
-            ids = by_country.setdefault(country.lower(), [])
-            if str(app["appstore"]) not in ids:
-                ids.append(str(app["appstore"]))
-    return by_country
+            if app.get("appstore"):
+                ids = by_country.setdefault(country.lower(), [])
+                if str(app["appstore"]) not in ids:
+                    ids.append(str(app["appstore"]))
+            if app.get("play") and (app["play"], country.lower()) not in play:
+                play.append((app["play"], country.lower()))
+    return by_country, play
 
 
 def hash_screenshots(con, snap: dict, limiter: fetch.RateLimiter, log=print) -> tuple[int, int]:
@@ -55,7 +57,8 @@ def cmd_run(args) -> int:
     images = fetch.RateLimiter(args.image_interval)
     taken_at, failures, started = now_utc(), 0, time.monotonic()
     stats = {"taken_at": taken_at, "snapshots": 0, "images_downloaded": 0, "image_failures": 0, "notes": 0}
-    for country, ids in load_watchlist(args.watchlist).items():
+    appstore, play = load_watchlist(args.watchlist)
+    for country, ids in appstore.items():
         for start in range(0, len(ids), 50):
             batch = ids[start:start + 50]
             try:
@@ -78,13 +81,30 @@ def cmd_run(args) -> int:
                 print(f"snapshot {country} {snap['app_id']} {snap['title']} v{snap['version']}")
             for missing in set(batch) - found:
                 print(f"not found in {country} storefront: {missing}", file=sys.stderr)
+    if not args.no_play:
+        play_limiter = fetch.RateLimiter(args.play_interval)
+        for package, country in play:
+            try:
+                snap = fetch.parse_play(fetch.fetch_play(package, country, play_limiter), package, country)
+            except Exception as exc:
+                print(f"play fetch failed for {package} {country}: {exc}", file=sys.stderr)
+                failures += 1
+                continue
+            snap["taken_at"] = taken_at
+            if not args.no_hash:
+                got, bad = hash_screenshots(con, snap, images)
+                stats["images_downloaded"] += got
+                stats["image_failures"] += bad
+            db.save_snapshot(con, snap)
+            stats["snapshots"] += 1
+            print(f"snapshot play {country} {package} {snap['title']}")
     if not args.no_notes:
         stats["notes"] = write_notes(con)
         stats["note_models"] = llm.models() if llm.provider() != "none" else None
         stats["llm_usage"] = dict(llm.usage)
     if args.html:
         render_all(con, args.html)
-    stats.update(lookup_failures=failures, seconds=round(time.monotonic() - started, 1))
+    stats.update(fetch_failures=failures, seconds=round(time.monotonic() - started, 1))
     if args.log:
         with open(args.log, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(stats) + "\n")
@@ -184,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--no-notes", action="store_true", help="skip LLM notes")
     r.add_argument("--no-hash", action="store_true", help="skip screenshot downloads")
     r.add_argument("--lookup-interval", type=float, default=3.0, help="seconds between Lookup calls")
+    r.add_argument("--no-play", action="store_true", help="skip Google Play pages")
+    r.add_argument("--play-interval", type=float, default=5.0, help="seconds between Play page requests")
     r.add_argument("--image-interval", type=float, default=0.5, help="seconds between image downloads")
     r.set_defaults(func=cmd_run)
 

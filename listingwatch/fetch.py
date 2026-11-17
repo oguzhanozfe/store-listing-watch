@@ -1,17 +1,22 @@
-"""App Store fetching (iTunes Lookup API) and perceptual hashing of screenshots.
+"""Listing fetching and perceptual hashing of screenshots.
 
-Only Apple's public, documented iTunes Search/Lookup API is called. Screenshots
+App Store: Apple's public, documented iTunes Lookup API.
+Google Play: the public details page, fetched only when play.google.com/robots.txt allows the URL for our user
+agent (Google's terms prohibit automated access only where it violates such machine-readable instructions),
+rate-limited, and parsed from its schema.org JSON-LD block plus a few plain HTML sections. Screenshots
 are fetched from Apple's image CDN as a small PNG rendition so they can be
 decoded with the standard library (zlib) and hashed without Pillow.
 """
 from __future__ import annotations
 
+import html as htmllib
 import json
 import re
 import struct
 import time
 import urllib.parse
 import urllib.request
+import urllib.robotparser
 import zlib
 
 USER_AGENT = "store-listing-watch/0.1 (+https://github.com/oguzhanozfe/store-listing-watch)"
@@ -72,13 +77,85 @@ def normalize_appstore(result: dict, country: str) -> dict:
     }
 
 
+# --- Google Play ----------------------------------------------------------
+
+PLAY_DETAILS = "https://play.google.com/store/apps/details"
+_robots: dict[str, urllib.robotparser.RobotFileParser] = {}
+
+
+def robots_allows(url: str, limiter: RateLimiter) -> bool:
+    origin = "{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(url))
+    if origin not in _robots:
+        parser = urllib.robotparser.RobotFileParser()
+        try:
+            parser.parse(http_get(f"{origin}/robots.txt", limiter).decode("utf-8", "replace").splitlines())
+        except Exception:
+            parser.parse(["User-agent: *", "Disallow: /"])  # cannot read robots.txt: do not crawl
+        _robots[origin] = parser
+    return _robots[origin].can_fetch(USER_AGENT, url)
+
+
+def play_url(package: str, country: str) -> str:
+    return f"{PLAY_DETAILS}?{urllib.parse.urlencode({'id': package, 'hl': 'en_US', 'gl': country.upper()})}"
+
+
+def fetch_play(package: str, country: str, limiter: RateLimiter) -> str:
+    url = play_url(package, country)
+    if not robots_allows(url, limiter):
+        raise PermissionError(f"robots.txt disallows {url}")
+    return http_get(url, limiter).decode("utf-8", "replace")
+
+
+def _text(fragment: str) -> str:
+    fragment = re.sub(r"<br\s*/?>", "\n", fragment)
+    return htmllib.unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
+
+
+def parse_play(page: str, package: str, country: str) -> dict:
+    """Map a Play details page to snapshot fields. Version is not in the page's static HTML, so it stays None."""
+    ld = None
+    for block in re.findall(r'<script type="application/ld\+json"[^>]*>(.*?)</script>', page, re.S):
+        data = json.loads(block)
+        if data.get("@type") == "SoftwareApplication":
+            ld = data
+    if ld is None:
+        raise ValueError("no SoftwareApplication JSON-LD block; the page layout may have changed")
+    desc = re.search(r'data-g-id="description"[^>]*>(.*?)</div>', page, re.S)
+    news = re.search(r'What’s new</h2>.*?<div itemprop="description">(.*?)</div>', page, re.S)
+    updated = re.search(r"Updated on</div><div[^>]*>([^<]+)<", page)
+    rating = ld.get("aggregateRating") or {}
+    offer = (ld.get("offers") or [{}])[0]
+    shots = re.findall(r'<img src="([^"]+)"[^>]*alt="Screenshot image"', page)
+    return {
+        "store": "googleplay",
+        "app_id": package,
+        "country": country.lower(),
+        "title": ld.get("name"),
+        "subtitle": ld.get("description"),          # Play's short description
+        "developer": (ld.get("author") or {}).get("name"),
+        "description": _text(desc.group(1)) if desc else "",
+        "version": None,
+        "version_date": updated.group(1).strip() if updated else None,
+        "release_notes": _text(news.group(1)) if news else "",
+        "price": float(offer["price"]) if offer.get("price") is not None else None,
+        "currency": offer.get("priceCurrency"),
+        "has_iap": ">In-app purchases<" in page,
+        "rating": float(rating["ratingValue"]) if rating.get("ratingValue") else None,
+        "rating_count": int(rating["ratingCount"]) if rating.get("ratingCount") else None,
+        "screenshots": [{"url": htmllib.unescape(u), "hash": None} for u in dict.fromkeys(shots)],
+        "url": play_url(package, country),
+    }
+
+
 # --- perceptual hash -------------------------------------------------------
 
 _SIZE_SUFFIX = re.compile(r"/\d+x\d+[a-z]*\.(jpg|jpeg|png|webp)$")
 
 
 def thumb_url(url: str) -> str:
-    """Ask Apple's CDN for a 32px-high PNG rendition of a screenshot."""
+    """Ask the store's image CDN for a small PNG rendition of a screenshot."""
+    if "googleusercontent.com/" in url:
+        return url.split("=")[0] + "=w32-h32-rp"  # -rp forces PNG; plain sizes may return JPEG
     if _SIZE_SUFFIX.search(url):
         return _SIZE_SUFFIX.sub("/32x32bb.png", url)
     return url
