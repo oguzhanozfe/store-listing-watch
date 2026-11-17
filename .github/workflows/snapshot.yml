@@ -35,9 +35,9 @@ jobs:
           if git rev-parse --verify -q origin/data >/dev/null; then
             git checkout -B data origin/data
           else
-            git checkout --orphan data && git rm -rq --cached . && git clean -fdq
+            git checkout --orphan data && git rm -rqf --cached . && git clean -fdq
           fi
           rm -rf data timeline && cp -r /tmp/out/data /tmp/out/timeline .
-          git add data timeline
+          git add -f data timeline
           git commit -qm "Daily snapshot $(date -u +%Y-%m-%d)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
           git push origin data
