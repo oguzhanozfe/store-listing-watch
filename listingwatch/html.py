@@ -17,7 +17,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:6px 8px;border-bottom:1p
 .chg{margin:8px 0}.field{font-weight:600}.diff{font:12px/1.45 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0;max-height:320px;overflow:auto}
 .diff .a{background:var(--add)}.diff .d{background:var(--del)}.words span{display:inline-block;margin:2px 4px 2px 0;padding:0 6px;border-radius:4px;font-size:13px}
 .words .a{background:var(--add)}.words .d{background:var(--del)}.note{background:var(--note);border-radius:8px;padding:10px 12px;margin-top:10px}
-.note b{font-size:12px;letter-spacing:.04em;text-transform:uppercase}.shots{display:flex;gap:6px;flex-wrap:wrap}.shots img{height:120px;border-radius:6px;border:2px solid var(--line)}
+.note b{font-size:12px;letter-spacing:.02em}.shots{display:flex;gap:6px;flex-wrap:wrap}.shots img{height:120px;border-radius:6px;border:2px solid var(--line)}
 .shots .a{border-color:#2e9d57}.shots .d{border-color:#d0453f;opacity:.7}.quiet{font-size:13px}
 """
 
@@ -59,7 +59,7 @@ def _render_change(c: dict) -> str:
     return "".join(out)
 
 
-def render_listing(con, store: str, app_id: str, country: str) -> tuple[str, dict]:
+def render_listing(con, store: str, app_id: str, country: str, banner: str = "") -> tuple[str, dict]:
     snaps = db.history(con, store, app_id, country)
     last = snaps[-1]
     cards, quiet, changed = [], 0, 0
@@ -86,8 +86,12 @@ def render_listing(con, store: str, app_id: str, country: str) -> tuple[str, dic
             f'<div class="shots">{shots}</div>')
     quiet_line = f'<p class="quiet muted">{quiet} snapshot pair(s) with no change are not shown.</p>' if quiet else ""
     empty = "" if cards else '<p class="muted">No changes between snapshots yet.</p>'
-    doc = _doc(last["title"], head + "<h2>Changes</h2>" + empty + "".join(cards) + quiet_line)
+    doc = _doc(last["title"], _banner(banner) + head + "<h2>Changes</h2>" + empty + "".join(cards) + quiet_line)
     return doc, {"title": last["title"], "snapshots": len(snaps), "changed": changed, "last": last["taken_at"]}
+
+
+def _banner(text: str) -> str:
+    return f'<p class="card" style="border-color:#d0453f"><b>{_e(text)}</b></p>' if text else ""
 
 
 def _doc(title: str, body: str) -> str:
@@ -96,11 +100,11 @@ def _doc(title: str, body: str) -> str:
             f'<style>{CSS}</style></head><body><main>{body}</main></body></html>\n')
 
 
-def render_all(con, out_dir: str) -> list[str]:
+def render_all(con, out_dir: str, banner: str = "") -> list[str]:
     os.makedirs(out_dir, exist_ok=True)
     rows, written = [], []
     for store, app_id, country in db.tracked(con):
-        doc, info = render_listing(con, store, app_id, country)
+        doc, info = render_listing(con, store, app_id, country, banner)
         name = page_name(store, app_id, country)
         with open(os.path.join(out_dir, name), "w", encoding="utf-8") as fh:
             fh.write(doc)
@@ -108,7 +112,7 @@ def render_all(con, out_dir: str) -> list[str]:
         rows.append(f'<tr><td><a href="{name}">{_e(info["title"])}</a></td><td>{_e(store)}</td>'
                     f'<td>{_e(country.upper())}</td><td>{info["snapshots"]}</td><td>{info["changed"]}</td>'
                     f'<td>{_e(info["last"])}</td></tr>')
-    body = ('<h1>Store listing watch</h1><p class="muted">Listing snapshots over time. Diffs are computed; '
+    body = (_banner(banner) + '<h1>Store listing watch</h1><p class="muted">Listing snapshots over time. Diffs are computed; '
             'notes marked “Interpretation” are written by a language model and are guesses about intent.</p>'
             '<table><tr><th>Game</th><th>Store</th><th>Country</th><th>Snapshots</th><th>Changes</th>'
             f'<th>Last snapshot (UTC)</th></tr>{"".join(rows)}</table>')

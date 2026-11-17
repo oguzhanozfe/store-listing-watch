@@ -109,7 +109,27 @@ downloaded or hashed, so screenshot changes are matched by URL only unless you s
 
 ## Results
 
-Snapshots are being collected; results from the committed runs are added here once two runs exist.
+Two real runs over the committed watchlist (12 listings), logged in [`data/runs.jsonl`](data/runs.jsonl) and
+stored in [`data/listings.sqlite`](data/listings.sqlite):
+
+| Run (UTC) | Snapshots | Screenshots downloaded | Lookup failures | Notes | Wall time |
+|---|---|---|---|---|---|
+| 2026-11-17 01:02:39 | 12 | 83 (all new) | 0 | 0 (first run, nothing to diff) | 45.5 s |
+| 2026-11-17 09:39:43 | 12 | 0 (all 83 URLs cached) | 0 | 0 | 3.1 s |
+
+**Between the two runs, 8 h 37 min apart, none of the 12 listings changed**: same title, description, version,
+release notes, price, screenshot set, rating and rating count. So the real timeline in
+[`examples/timeline/`](examples/timeline/index.html) has two snapshots per listing and no change cards yet, and no
+notes were written. Apple's Lookup data appears to refresh less often than every few hours (the rating counts
+did not move either), so a daily or six-hourly cron is a sensible cadence.
+
+To show what a change looks like, [`examples/demo-timeline/`](examples/demo-timeline/index.html) is a
+**simulated** example, labelled as such on every page: the first snapshot is the real Royal Match US snapshot
+from run 1, and the second is a copy edited by [`examples/make_demo.py`](examples/make_demo.py) (invented winter
+event release notes, version suffix `-sim`, +2,000 ratings, last screenshot swapped for a different real Royal
+Match image). Its note was written by `gemma-4-26b-a4b-it` on the Gemini API (the first two models in the list failed on
+that call, which is the fallback working; the error codes were not logged). The note correctly read the
+edit as a seasonal event; that is one example, not an evaluation.
 
 ## Known limits
 
@@ -138,7 +158,8 @@ listingwatch/html.py    static timeline
 listingwatch/cli.py     run, import-play, notes, timeline, diff
 tests/                  unittest suite and recorded fixtures (a real Lookup response, a real 32 px screenshot)
 data/                   committed SQLite database and run log from real runs
-examples/timeline/      the timeline rendered from data/
+examples/timeline/      the timeline rendered from data/ (real)
+examples/demo-timeline/ simulated change demo, built by examples/make_demo.py
 ```
 
 ## License
