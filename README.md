@@ -120,19 +120,26 @@ screenshot changes are matched by URL unless you supply `{"url", "hash"}` object
 
 ## Results
 
-Two real runs over the committed watchlist (12 listings), logged in [`data/runs.jsonl`](data/runs.jsonl) and
-stored in [`data/listings.sqlite`](data/listings.sqlite):
+Four real runs on 2026-11-17, logged in [`data/runs.jsonl`](data/runs.jsonl) and stored in
+[`data/listings.sqlite`](data/listings.sqlite). Google Play fetching was added before run 3.
 
-| Run (UTC) | Snapshots | Screenshots downloaded | Lookup failures | Notes | Wall time |
+| Run (UTC) | Snapshots | Screenshots downloaded | Fetch failures | Notes | Wall time |
 |---|---|---|---|---|---|
-| 2026-11-17 01:02:39 | 12 | 83 (all new) | 0 | 0 (first run, nothing to diff) | 45.5 s |
-| 2026-11-17 09:39:43 | 12 | 0 (all 83 URLs cached) | 0 | 0 | 3.1 s |
+| 01:02:39 | 12 App Store | 83 (all new) | 0 | 0 (nothing to diff yet) | 45.5 s |
+| 09:39:43 | 12 App Store | 0 (all cached) | 0 | 0 | 3.1 s |
+| 09:47:01 | 12 App Store + 12 Play | 107 (Play, all new) | 0 | 0 | 89.2 s |
+| 10:48:36 | 12 App Store + 12 Play | 0 (all cached) | 0 | 0 | 63.5 s |
 
-**Between the two runs, 8 h 37 min apart, none of the 12 listings changed**: same title, description, version,
-release notes, price, screenshot set, rating and rating count. So the real timeline in
-[`examples/timeline/`](examples/timeline/index.html) has two snapshots per listing and no change cards yet, and no
-notes were written. Apple's Lookup data appears to refresh less often than every few hours (the rating counts
-did not move either), so a daily or six-hourly cron is a sensible cadence.
+What changed:
+
+- **App Store: nothing in 9 h 46 min** across 4 snapshots per listing, rating counts included. Apple serves the
+  Lookup response with a CDN `max-age` near 24 h and a never-requested URL variant returned the same values
+  ([`data/cache_check.txt`](data/cache_check.txt)), so a sub-daily cadence cannot see App Store changes.
+- **Google Play: rating count moved on all 12 listings in 62 min** (for example Clash of Clans +88, Clash Royale
+  +78, Pokémon GO +5); no text, version date or screenshot changed. The US and GB pages of Royal Match and
+  MONOPOLY GO! show near-identical counts, so Play's count appears to be global, not per storefront.
+- Rating-only moves do not trigger a note, so **no real note has been written yet**. The real timeline in
+  [`examples/timeline/`](examples/timeline/index.html) shows the Play rating-count cards and no interpretation.
 
 To show what a change looks like, [`examples/demo-timeline/`](examples/demo-timeline/index.html) is a
 **simulated** example, labelled as such on every page: the first snapshot is the real Royal Match US snapshot
