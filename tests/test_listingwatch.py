@@ -157,7 +157,8 @@ class StorageAndNotesTests(unittest.TestCase):
 
     def test_notes_cached_and_skipped_without_material_change(self):
         first, second = self._pair()
-        with mock.patch.dict(os.environ, {"LISTINGWATCH_LLM": "ollama"}), \
+        with mock.patch.dict(os.environ, {"LISTINGWATCH_LLM": "ollama", "LISTINGWATCH_MODEL": "qwen3.5:9b"}), \
+                mock.patch.object(llm, "model_id", return_value="ollama:qwen3.5:9b"), \
                 mock.patch.object(llm, "complete", return_value="<think>x</think>Likely a Halloween live event.") as fake:
             self.assertEqual(cli.write_notes(self.con), 1)
             self.assertEqual(cli.write_notes(self.con), 0)  # cached
@@ -166,7 +167,26 @@ class StorageAndNotesTests(unittest.TestCase):
             self.assertIn("Halloween", prompt)
         note = db.get_note(self.con, first, second)
         self.assertEqual(note["note"], "Likely a Halloween live event.")
-        self.assertTrue(note["model"].startswith("ollama:"))
+        self.assertTrue(note["model"].startswith("ollama:qwen3.5:9b"))
+
+    def test_auto_provider_prefers_gemini_then_deepseek_then_ollama(self):
+        env = {"LISTINGWATCH_LLM": "auto", "GEMINI_API_KEY": "", "DEEPSEEK_API_KEY": ""}
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(llm.provider(), "ollama")
+            os.environ["DEEPSEEK_API_KEY"] = "x"
+            self.assertEqual((llm.provider(), llm.model_name()), ("deepseek", "deepseek-chat"))
+            os.environ["GEMINI_API_KEY"] = "x"
+            self.assertEqual(llm.provider(), "gemini")
+
+    def test_cloud_call_shape_and_usage(self):
+        reply = {"choices": [{"message": {"content": " Seasonal event. "}}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}
+        with mock.patch.dict(os.environ, {"LISTINGWATCH_LLM": "gemini", "GEMINI_API_KEY": "k"}), \
+                mock.patch.object(llm, "_post", return_value=reply) as post:
+            self.assertEqual(llm.complete("diff"), "Seasonal event.")
+            url, payload, headers = post.call_args[0]
+            self.assertTrue(url.endswith("/v1beta/openai/chat/completions"))
+            self.assertEqual(headers["Authorization"], "Bearer k")
+            self.assertEqual(payload["model"], llm.model_name())
 
     def test_provider_none_writes_nothing(self):
         self._pair()

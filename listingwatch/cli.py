@@ -81,6 +81,7 @@ def cmd_run(args) -> int:
     if not args.no_notes:
         stats["notes"] = write_notes(con)
         stats["note_model"] = llm.model_id() if llm.provider() != "none" else None
+        stats["llm_usage"] = dict(llm.usage)
     if args.html:
         render_all(con, args.html)
     stats.update(lookup_failures=failures, seconds=round(time.monotonic() - started, 1))
@@ -111,7 +112,7 @@ def write_notes(con, redo: bool = False) -> int:
                 print(f"note skipped for {cur['title']} {country}: {exc}", file=sys.stderr)
                 continue
             if text:
-                db.put_note(con, prev["id"], cur["id"], f"{llm.provider()}:{llm.model_name()}",
+                db.put_note(con, prev["id"], cur["id"], llm.model_id(),
                             _THINK.sub("", text).strip(), now_utc())
                 written += 1
                 print(f"note {cur['title']} {country} ({prev['taken_at']} -> {cur['taken_at']})")

@@ -40,19 +40,26 @@ python -m listingwatch run --html timeline           # snapshot the watchlist, w
 open timeline/index.html
 ```
 
-Notes use a local [Ollama](https://ollama.com) model by default (`qwen3.5:9b` at `http://127.0.0.1:11434`).
+Notes use a cloud model by default, chosen from the keys in your environment: Gemini (`GEMINI_API_KEY`,
+default `gemini-3.5-flash`, free tier is enough for a watchlist this size), else DeepSeek (`DEEPSEEK_API_KEY`,
+`deepseek-chat`), else a local [Ollama](https://ollama.com) model. Without any key or model, snapshots, diffs and
+the timeline still work; `LISTINGWATCH_LLM=none` skips notes on purpose. Every note stores the provider and model
+that wrote it, and each run logs the call count and token usage in `data/runs.jsonl`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `LISTINGWATCH_LLM` | `ollama` | `ollama`, `openai` (any OpenAI-compatible endpoint) or `none` |
-| `LISTINGWATCH_MODEL` | `qwen3.5:9b` / `gpt-4o-mini` | model name |
-| `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama address |
+| `LISTINGWATCH_LLM` | `auto` | `auto`, `gemini`, `deepseek`, `openai` (any OpenAI-compatible endpoint), `ollama` or `none` |
+| `LISTINGWATCH_MODEL` | per provider | `gemini-3.5-flash`, `deepseek-chat`, `gpt-4o-mini`, `qwen3.5:9b` |
+| `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` | – | cloud keys, read from the environment only |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL` | – | only for `openai` |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` | only for `ollama` |
+
+Only the diff of public listing text is sent to the model. Tests and CI never call a model.
 
 Other commands:
 
 ```bash
-python -m listingwatch notes                  # write any missing notes (e.g. after Ollama was down)
+python -m listingwatch notes                  # write any missing notes (e.g. after the model was unreachable)
 python -m listingwatch timeline --out timeline
 python -m listingwatch diff appstore 1482155847 us   # latest diff as JSON
 python -m listingwatch import-play snapshot.json     # manual Google Play snapshot, see below
@@ -120,7 +127,7 @@ Snapshots are being collected; results from the committed runs are added here on
 listingwatch/fetch.py   Lookup API, rate limiter, PNG decode, dHash
 listingwatch/db.py      SQLite schema and queries
 listingwatch/diff.py    snapshot diff
-listingwatch/llm.py     note prompt, Ollama / OpenAI-compatible client with retries
+listingwatch/llm.py     note prompt; Gemini / DeepSeek / OpenAI-compatible / Ollama client with retries
 listingwatch/html.py    static timeline
 listingwatch/cli.py     run, import-play, notes, timeline, diff
 tests/                  unittest suite and recorded fixtures (a real Lookup response, a real 32 px screenshot)
