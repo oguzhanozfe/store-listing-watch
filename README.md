@@ -40,16 +40,21 @@ python -m listingwatch run --html timeline           # snapshot the watchlist, w
 open timeline/index.html
 ```
 
-Notes use a cloud model by default, chosen from the keys in your environment: Gemini (`GEMINI_API_KEY`,
-default `gemini-3.5-flash`, free tier is enough for a watchlist this size), else DeepSeek (`DEEPSEEK_API_KEY`,
-`deepseek-chat`), else a local [Ollama](https://ollama.com) model. Without any key or model, snapshots, diffs and
+Notes use a cloud model by default, chosen from the keys in your environment: the Gemini API
+(`GEMINI_API_KEY`), else DeepSeek (`DEEPSEEK_API_KEY`, `deepseek-chat`), else a local [Ollama](https://ollama.com) model. Without any key or model, snapshots, diffs and
 the timeline still work; `LISTINGWATCH_LLM=none` skips notes on purpose. Every note stores the provider and model
 that wrote it, and each run logs the call count and token usage in `data/runs.jsonl`.
+
+Free-tier quotas on the Gemini API are small and counted per model, so the Gemini provider walks a list:
+`gemma-4-31b-it`, `gemma-4-26b-a4b-it`, `gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.5-flash`.
+Each model is tried once; a 429, 5xx or network error moves on to the next, and if all fail the note is skipped
+and retried by the next `run` or `notes`. Responses are cached in SQLite by a hash of provider, model list, system
+prompt and diff, so re-rendering or `notes --redo` on unchanged input makes no calls.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `LISTINGWATCH_LLM` | `auto` | `auto`, `gemini`, `deepseek`, `openai` (any OpenAI-compatible endpoint), `ollama` or `none` |
-| `LISTINGWATCH_MODEL` | per provider | `gemini-3.5-flash`, `deepseek-chat`, `gpt-4o-mini`, `qwen3.5:9b` |
+| `LISTINGWATCH_MODEL` | per provider | one model or a comma-separated fallback list |
 | `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` | – | cloud keys, read from the environment only |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL` | – | only for `openai` |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | only for `ollama` |

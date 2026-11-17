@@ -158,10 +158,11 @@ class StorageAndNotesTests(unittest.TestCase):
     def test_notes_cached_and_skipped_without_material_change(self):
         first, second = self._pair()
         with mock.patch.dict(os.environ, {"LISTINGWATCH_LLM": "ollama", "LISTINGWATCH_MODEL": "qwen3.5:9b"}), \
-                mock.patch.object(llm, "model_id", return_value="ollama:qwen3.5:9b"), \
-                mock.patch.object(llm, "complete", return_value="<think>x</think>Likely a Halloween live event.") as fake:
+                mock.patch.object(llm, "complete",
+                                  return_value=("<think>x</think>Likely a Halloween live event.", "ollama:qwen3.5:9b")) as fake:
             self.assertEqual(cli.write_notes(self.con), 1)
-            self.assertEqual(cli.write_notes(self.con), 0)  # cached
+            self.assertEqual(cli.write_notes(self.con), 0)  # note already exists
+            self.assertEqual(cli.write_notes(self.con, redo=True), 1)  # same input: served from llm_cache
             self.assertEqual(fake.call_count, 1)
             prompt = fake.call_args[0][0]
             self.assertIn("Halloween", prompt)
@@ -182,11 +183,24 @@ class StorageAndNotesTests(unittest.TestCase):
         reply = {"choices": [{"message": {"content": " Seasonal event. "}}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}
         with mock.patch.dict(os.environ, {"LISTINGWATCH_LLM": "gemini", "GEMINI_API_KEY": "k"}), \
                 mock.patch.object(llm, "_post", return_value=reply) as post:
-            self.assertEqual(llm.complete("diff"), "Seasonal event.")
+            self.assertEqual(llm.complete("diff"), ("Seasonal event.", f"gemini:{llm.model_name()}"))
             url, payload, headers = post.call_args[0]
             self.assertTrue(url.endswith("/v1beta/openai/chat/completions"))
             self.assertEqual(headers["Authorization"], "Bearer k")
             self.assertEqual(payload["model"], llm.model_name())
+
+    def test_falls_through_models_on_rate_limit_without_looping(self):
+        import urllib.error
+        busy = urllib.error.HTTPError("u", 429, "quota", {}, None)
+        reply = {"choices": [{"message": {"content": "ok"}}]}
+        env = {"LISTINGWATCH_LLM": "gemini", "GEMINI_API_KEY": "k", "LISTINGWATCH_MODEL": "a, b, c"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(llm, "_post", side_effect=[busy, reply]) as post:
+            self.assertEqual(llm.complete("diff"), ("ok", "gemini:b"))
+            self.assertEqual([c[0][1]["model"] for c in post.call_args_list], ["a", "b"])
+        with mock.patch.dict(os.environ, env), mock.patch.object(llm, "_post", side_effect=[busy] * 3) as post:
+            with self.assertRaises(RuntimeError):
+                llm.complete("diff")
+            self.assertEqual(post.call_count, 3)
 
     def test_provider_none_writes_nothing(self):
         self._pair()

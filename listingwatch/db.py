@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS notes (
     model TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL,
     PRIMARY KEY (from_id, to_id)
 );
+CREATE TABLE IF NOT EXISTS llm_cache (key TEXT PRIMARY KEY, model TEXT NOT NULL, text TEXT NOT NULL);
 """
 
 FIELDS = ["store", "app_id", "country", "taken_at", "title", "subtitle", "developer", "description",
@@ -87,4 +88,14 @@ def get_note(con: sqlite3.Connection, from_id: int, to_id: int) -> dict | None:
 
 def put_note(con: sqlite3.Connection, from_id: int, to_id: int, model: str, note: str, created_at: str) -> None:
     con.execute("INSERT OR REPLACE INTO notes VALUES (?, ?, ?, ?, ?)", (from_id, to_id, model, note, created_at))
+    con.commit()
+
+
+def cached_completion(con: sqlite3.Connection, key: str) -> tuple[str, str] | None:
+    row = con.execute("SELECT text, model FROM llm_cache WHERE key=?", (key,)).fetchone()
+    return (row[0], row[1]) if row else None
+
+
+def store_completion(con: sqlite3.Connection, key: str, text: str, model: str) -> None:
+    con.execute("INSERT OR REPLACE INTO llm_cache VALUES (?, ?, ?)", (key, model, text))
     con.commit()

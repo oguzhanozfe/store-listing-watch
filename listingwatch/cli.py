@@ -80,7 +80,7 @@ def cmd_run(args) -> int:
                 print(f"not found in {country} storefront: {missing}", file=sys.stderr)
     if not args.no_notes:
         stats["notes"] = write_notes(con)
-        stats["note_model"] = llm.model_id() if llm.provider() != "none" else None
+        stats["note_models"] = llm.models() if llm.provider() != "none" else None
         stats["llm_usage"] = dict(llm.usage)
     if args.html:
         render_all(con, args.html)
@@ -106,16 +106,22 @@ def write_notes(con, redo: bool = False) -> int:
             changes = diff_snapshots(prev, cur)
             if not is_material(changes):
                 continue
-            try:
-                text = llm.complete(llm.build_prompt(cur["title"], store, country, changes))
-            except Exception as exc:
-                print(f"note skipped for {cur['title']} {country}: {exc}", file=sys.stderr)
-                continue
-            if text:
-                db.put_note(con, prev["id"], cur["id"], llm.model_id(),
-                            _THINK.sub("", text).strip(), now_utc())
-                written += 1
-                print(f"note {cur['title']} {country} ({prev['taken_at']} -> {cur['taken_at']})")
+            prompt = llm.build_prompt(cur["title"], store, country, changes)
+            key = llm.cache_key(prompt)
+            result = db.cached_completion(con, key)
+            if result is None:
+                try:
+                    result = llm.complete(prompt)
+                except Exception as exc:
+                    print(f"note skipped for {cur['title']} {country}: {exc}", file=sys.stderr)
+                    continue
+                if result is None:
+                    continue
+                db.store_completion(con, key, *result)
+            text, model = result
+            db.put_note(con, prev["id"], cur["id"], model, _THINK.sub("", text).strip(), now_utc())
+            written += 1
+            print(f"note {cur['title']} {country} ({prev['taken_at']} -> {cur['taken_at']}) by {model}")
     return written
 
 

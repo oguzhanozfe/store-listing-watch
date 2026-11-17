@@ -7,13 +7,14 @@ Provider (env LISTINGWATCH_LLM, default `auto`):
   openai    any OpenAI-compatible endpoint (OPENAI_API_KEY, OPENAI_BASE_URL)
   ollama    local Ollama at OLLAMA_HOST (default http://127.0.0.1:11434)
   none      no model; notes are skipped
-LISTINGWATCH_MODEL overrides the model. The note is interpretation, not fact; the timeline labels it so.
+LISTINGWATCH_MODEL overrides the model; a comma-separated list is tried in order, moving to the next model on
+a rate limit (429), overload (5xx) or network error, never looping on one model. The note is interpretation, not fact; the timeline labels it so.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-import time
 import urllib.error
 import urllib.request
 
@@ -27,7 +28,9 @@ SYSTEM = (
 
 # provider: (base URL, key env var, default model)
 CLOUD = {
-    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY", "gemini-3.5-flash"),
+    # Free-tier daily quotas are per model, so spread across several: Gemma first, Gemini flash variants after.
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY",
+               "gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-3.5-flash"),
     "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY", "deepseek-chat"),
     "openai": (None, "OPENAI_API_KEY", "gpt-4o-mini"),
 }
@@ -46,20 +49,25 @@ def provider() -> str:
     return "ollama"
 
 
-def model_name() -> str:
+def models() -> list[str]:
     p = provider()
     default = CLOUD[p][2] if p in CLOUD else "qwen3.5:9b"
-    return os.environ.get("LISTINGWATCH_MODEL", default)
+    return [m.strip() for m in os.environ.get("LISTINGWATCH_MODEL", default).split(",") if m.strip()]
 
 
-def model_id() -> str:
+def model_name() -> str:
+    return models()[0]
+
+
+def model_id(model: str | None = None) -> str:
     """provider:model, plus the Ollama digest prefix when available, recorded with each note and run."""
-    label = f"{provider()}:{model_name()}"
+    model = model or model_name()
+    label = f"{provider()}:{model}"
     if provider() == "ollama":
         try:
             with urllib.request.urlopen(f"{_ollama_host()}/api/tags", timeout=10) as resp:
                 for m in json.loads(resp.read()).get("models", []):
-                    if m.get("name") == model_name():
+                    if m.get("name") == model:
                         label += f"@{m.get('digest', '')[:12]}"
         except OSError:
             pass
@@ -89,28 +97,33 @@ def _post(url: str, payload: dict, headers: dict, timeout: float = 120) -> dict:
         return json.loads(resp.read())
 
 
-def complete(prompt: str, attempts: int = 4) -> str | None:
-    """Call the model, retrying with backoff on rate limits (429), 5xx and network errors."""
-    for attempt in range(attempts):
+def cache_key(prompt: str) -> str:
+    """Hash of everything that shapes the answer, so identical diffs never cost a second call."""
+    return hashlib.sha256(json.dumps([provider(), models(), SYSTEM, prompt]).encode()).hexdigest()
+
+
+def complete(prompt: str) -> tuple[str, str] | None:
+    """Try each configured model once. Returns (text, model id) or None when notes are off."""
+    if provider() == "none":
+        return None
+    errors = []
+    for model in models():
         try:
-            return _complete_once(prompt)
+            return _complete_once(prompt, model), model_id(model)
         except urllib.error.HTTPError as exc:
-            if (exc.code != 429 and exc.code < 500) or attempt == attempts - 1:
+            if exc.code != 429 and exc.code < 500:
                 raise
-        except (OSError, TimeoutError):  # URLError and socket timeouts are OSErrors
-            if attempt == attempts - 1:
-                raise
-        time.sleep(10 * (attempt + 1))
-    return None
+            errors.append(f"{model}: HTTP {exc.code}")
+        except (OSError, TimeoutError) as exc:  # URLError and socket timeouts are OSErrors
+            errors.append(f"{model}: {exc}")
+    raise RuntimeError("all models failed: " + "; ".join(errors))
 
 
-def _complete_once(prompt: str) -> str | None:
+def _complete_once(prompt: str, model: str) -> str:
     p = provider()
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
-    if p == "none":
-        return None
     if p == "ollama":
-        out = _post(f"{_ollama_host()}/api/chat", {"model": model_name(), "messages": messages, "stream": False,
+        out = _post(f"{_ollama_host()}/api/chat", {"model": model, "messages": messages, "stream": False,
                                                    "think": False, "options": {"temperature": 0.2}}, {}, timeout=180)
         usage["calls"] += 1
         usage["prompt_tokens"] += out.get("prompt_eval_count", 0)
@@ -123,7 +136,7 @@ def _complete_once(prompt: str) -> str | None:
     if not key:
         raise RuntimeError(f"LISTINGWATCH_LLM={p} needs {key_var}")
     base = (base or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")).rstrip("/")
-    out = _post(f"{base}/chat/completions", {"model": model_name(), "messages": messages, "temperature": 0.2},
+    out = _post(f"{base}/chat/completions", {"model": model, "messages": messages, "temperature": 0.2},
                 {"Authorization": f"Bearer {key}"})
     usage["calls"] += 1
     usage["prompt_tokens"] += out.get("usage", {}).get("prompt_tokens", 0)
