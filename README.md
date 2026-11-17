@@ -2,6 +2,24 @@
 
 Track mobile game store listings over time and explain what competitors changed.
 
+## Try it
+
+**Live timeline: https://oguzhanozfe.github.io/store-listing-watch/** (rebuilt daily by GitHub Actions)
+
+[![Clash of Clans: archived App Store page vs live, with the diff and a labelled model note](examples/screenshot.png)](https://oguzhanozfe.github.io/store-listing-watch/appstore-archive-529479190-us.html)
+
+```bash
+git clone https://github.com/oguzhanozfe/store-listing-watch && cd store-listing-watch
+python -m listingwatch demo          # no key, no network, no installs; open demo/index.html
+```
+
+`demo` re-diffs the committed pairs of archived (about November 2025) and live (2026-11-17) App Store pages for 4
+games, writes a note per pair and renders the timeline. It picks the note model itself: a cloud key in the
+environment (`GEMINI_API_KEY` or `DEEPSEEK_API_KEY`), else a local Ollama model, else a replay of the notes
+recorded in `data/listings.sqlite`, printed as `mode: replay (recorded <model>, <date>)`. CI runs it in replay
+mode. To use a real model, set a key or start Ollama (see [Run it](#run-it)); keys are optional. Live snapshots
+(`run`) use Apple's public Lookup API and the public Play pages, which need no key either.
+
 Every run takes a snapshot of each App Store and Google Play listing on your watchlist (title, subtitle or short
 description, description, version, release notes, price, in-app-purchase flag, rating, rating count, screenshots)
 into SQLite. Consecutive snapshots are diffed: text diffs, word-level

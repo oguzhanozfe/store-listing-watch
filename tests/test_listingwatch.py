@@ -1,4 +1,5 @@
 import copy
+import io
 import json
 import os
 import struct
@@ -123,6 +124,27 @@ class AppStorePageTests(unittest.TestCase):
         import gzip
         self.assertEqual(fetch._maybe_gunzip(gzip.compress(b"<html>")), b"<html>")
         self.assertEqual(fetch._maybe_gunzip(b"<html>"), b"<html>")
+
+
+class DemoTests(unittest.TestCase):
+    def test_mode_resolution(self):
+        with mock.patch.dict(os.environ, {"LISTINGWATCH_LLM": "auto"}, clear=True):
+            with mock.patch.object(llm, "ollama_ready", return_value=False):
+                self.assertEqual(llm.demo_mode(), "replay")
+            with mock.patch.object(llm, "ollama_ready", return_value=True):
+                self.assertEqual(llm.demo_mode(), "live")
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "x"}, clear=True):
+            self.assertEqual(llm.demo_mode(), "live")
+
+    def test_replay_demo_on_committed_data(self):
+        with tempfile.TemporaryDirectory() as out, \
+                mock.patch.dict(os.environ, {"LISTINGWATCH_LLM": "replay"}), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(cli.main(["--db", str(ROOT / "data" / "listings.sqlite"), "demo", "--out", out]), 0)
+            self.assertIn("mode: replay (recorded", stdout.getvalue())
+            page = (Path(out) / "appstore-archive-529479190-us.html").read_text(encoding="utf-8")
+            self.assertIn("Archived snapshot vs live", page)
+            self.assertIn("Interpretation · gemini:", page)
 
 
 class PlayTests(unittest.TestCase):

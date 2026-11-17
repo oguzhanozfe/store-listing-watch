@@ -95,6 +95,26 @@ def _ollama_host() -> str:
     return os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 
 
+def ollama_ready() -> bool:
+    """True when local Ollama answers and has the configured model."""
+    try:
+        with urllib.request.urlopen(f"{_ollama_host()}/api/tags", timeout=3) as resp:
+            names = {m.get("name") for m in json.loads(resp.read()).get("models", [])}
+    except (OSError, ValueError):
+        return False
+    return any(m in names or f"{m}:latest" in names for m in models())
+
+
+def demo_mode() -> str:
+    """'live' when a cloud key or a local Ollama model is available, else 'replay' (recorded notes)."""
+    p = provider()
+    if p in ("none", "replay"):
+        return "replay"
+    if p in CLOUD:
+        return "live" if os.environ.get(CLOUD[p][1]) else "replay"
+    return "live" if p == "ollama" and ollama_ready() else "replay"
+
+
 def _post(url: str, payload: dict, headers: dict, timeout: float = 120) -> dict:
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", **headers})
     with urllib.request.urlopen(req, timeout=timeout) as resp:

@@ -3,3 +3,4 @@ __pycache__/
 /timeline/
 .venv/
 *.egg-info/
+/demo/

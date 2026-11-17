@@ -1,9 +1,10 @@
-"""Command line: run (cron), import-play, archive, notes, timeline, diff."""
+"""Command line: demo, run (cron), import-play, archive, notes, timeline, diff."""
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import sys
 import time
@@ -222,6 +223,48 @@ def cmd_archive(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_demo(args) -> int:
+    """Re-diff the committed archived-vs-live pairs, write their notes, render. Needs no key and no network."""
+    started = time.monotonic()
+    src = db.connect(args.db)
+    os.makedirs(args.out, exist_ok=True)
+    path = os.path.join(args.out, "demo.sqlite")
+    if os.path.exists(path):
+        os.remove(path)
+    con = db.connect(path)
+    for table, where in (("snapshots", f"WHERE store='{ARCHIVE_STORE}'"), ("image_hashes", ""), ("llm_cache", "")):
+        rows = src.execute(f"SELECT * FROM {table} {where}").fetchall()
+        if rows:
+            con.executemany(f"INSERT INTO {table} VALUES ({','.join('?' * len(rows[0]))})", [tuple(r) for r in rows])
+    con.commit()
+    pairs = [db.history(con, *key) for key in db.tracked(con)]
+    mode = llm.demo_mode()
+    if mode == "live":
+        print(f"mode: live ({llm.provider()}: {', '.join(llm.models())})")
+        written = write_notes(con)
+    else:
+        written, recorded = 0, set()
+        for snaps in pairs:
+            for prev, cur in zip(snaps, snaps[1:]):
+                note = db.get_note(src, prev["id"], cur["id"])
+                if note:
+                    db.put_note(con, prev["id"], cur["id"], note["model"], note["note"], note["created_at"])
+                    recorded.add(f"{note['model']}, {note['created_at'][:10]}")
+                    written += 1
+        print(f"mode: replay (recorded {'; '.join(sorted(recorded)) or 'nothing'})")
+    for snaps in pairs:
+        for prev, cur in zip(snaps, snaps[1:]):
+            fields = [c["field"] for c in diff_snapshots(prev, cur)]
+            print(f"  {cur['title']}: {prev['taken_at'][:10]} -> {cur['taken_at'][:10]} changed {', '.join(fields)}")
+    render_all(con, args.out, banner=DEMO_BANNER)
+    print(f"{written} note(s), timeline in {os.path.join(args.out, 'index.html')} ({time.monotonic() - started:.1f} s)")
+    return 0 if written else 1
+
+
+DEMO_BANNER = ("Demo: real App Store pages from the Internet Archive (about Nov 2025) diffed against the live pages "
+               "(2026-11-17). Diffs are computed; notes are a language model's interpretation.")
+
+
 def cmd_notes(args) -> int:
     print(f"{write_notes(db.connect(args.db), redo=args.redo)} note(s) written")
     return 0
@@ -273,6 +316,10 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--lookup-interval", type=float, default=3.0, help="seconds between apps.apple.com requests")
     a.add_argument("--image-interval", type=float, default=0.5)
     a.set_defaults(func=cmd_archive)
+
+    m = sub.add_parser("demo", help="no-key demo: diff the committed archived-vs-live pairs, notes, timeline")
+    m.add_argument("--out", default="demo")
+    m.set_defaults(func=cmd_demo)
 
     n = sub.add_parser("notes", help="write missing LLM notes")
     n.add_argument("--redo", action="store_true")
