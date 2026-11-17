@@ -180,7 +180,7 @@ class StorageAndNotesTests(unittest.TestCase):
             self.assertEqual(llm.provider(), "gemini")
 
     def test_cloud_call_shape_and_usage(self):
-        reply = {"choices": [{"message": {"content": " Seasonal event. "}}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}
+        reply = {"choices": [{"message": {"content": "<thought>hmm\nmaybe</thought> Seasonal event. "}}], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}
         with mock.patch.dict(os.environ, {"LISTINGWATCH_LLM": "gemini", "GEMINI_API_KEY": "k"}), \
                 mock.patch.object(llm, "_post", return_value=reply) as post:
             self.assertEqual(llm.complete("diff"), ("Seasonal event.", f"gemini:{llm.model_name()}"))

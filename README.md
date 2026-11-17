@@ -46,7 +46,8 @@ the timeline still work; `LISTINGWATCH_LLM=none` skips notes on purpose. Every n
 that wrote it, and each run logs the call count and token usage in `data/runs.jsonl`.
 
 Free-tier quotas on the Gemini API are small and counted per model, so the Gemini provider walks a list:
-`gemma-4-31b-it`, `gemma-4-26b-a4b-it`, `gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.5-flash`.
+`gemma-4-31b-it`, `gemini-3.5-flash-lite`, `gemma-4-26b-a4b-it`, `gemini-3.1-flash-lite`, `gemini-3.5-flash`.
+Inline `<thought>`/`<think>` reasoning blocks are stripped from replies.
 Each model is tried once; a 429, 5xx or network error moves on to the next, and if all fail the note is skipped
 and retried by the next `run` or `notes`. Responses are cached in SQLite by a hash of provider, model list, system
 prompt and diff, so re-rendering or `notes --redo` on unchanged input makes no calls.

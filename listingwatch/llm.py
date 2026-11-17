@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -30,10 +31,13 @@ SYSTEM = (
 CLOUD = {
     # Free-tier daily quotas are per model, so spread across several: Gemma first, Gemini flash variants after.
     "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY",
-               "gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-3.5-flash"),
+               "gemma-4-31b-it,gemini-3.5-flash-lite,gemma-4-26b-a4b-it,gemini-3.1-flash-lite,gemini-3.5-flash"),
     "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY", "deepseek-chat"),
     "openai": (None, "OPENAI_API_KEY", "gpt-4o-mini"),
 }
+
+# Some models (Gemma via the Gemini API, Qwen) put reasoning inline; keep only the answer.
+_REASONING = re.compile(r"<(think|thought)>.*?</\1>", re.S | re.I)
 
 usage = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
 
@@ -109,7 +113,7 @@ def complete(prompt: str) -> tuple[str, str] | None:
     errors = []
     for model in models():
         try:
-            return _complete_once(prompt, model), model_id(model)
+            return _REASONING.sub("", _complete_once(prompt, model)).strip(), model_id(model)
         except urllib.error.HTTPError as exc:
             if exc.code != 429 and exc.code < 500:
                 raise
