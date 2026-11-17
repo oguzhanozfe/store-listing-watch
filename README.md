@@ -102,7 +102,9 @@ Cron, once a day (Apple's Lookup responses are served with a CDN `max-age` of ab
 [`.github/workflows/snapshot.yml`](.github/workflows/snapshot.yml) runs `run --no-notes` every day at 06:17 UTC
 (and on demand from the Actions tab). It uses no model and no secrets. It continues from the database on the
 [`data`](../../tree/data) branch and commits the new `data/` and rendered `timeline/` back to that branch, so
-`main` stays code-only. To add notes to that history locally:
+`main` stays code-only. The same run publishes the rendered timeline to
+[GitHub Pages](https://oguzhanozfe.github.io/store-listing-watch/); notes already in the database (the archived-vs-live
+pairs) are shown, and new daily changes appear without notes. To add notes to that history locally:
 
 ```bash
 git fetch origin data && git checkout origin/data -- data/listings.sqlite
